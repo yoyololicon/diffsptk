@@ -81,11 +81,9 @@ class RootsToPolynomial(nn.Module):
 
         left_pols = []
         while a.shape[-2] > 1:
-            d, m = divmod(a.shape[-2], 2)
-            if m:
+            if a.shape[-2] % 2:
                 left_pols.append(a[..., -1, :])
                 a = a[..., :-1, :]
-            a = prod2pol(a[..., :d, :], a[..., d:, :])
-
+            a = prod2pol(*a.chunk(2, -2))
         a = reduce(prod2pol, left_pols[::-1], a.squeeze(-2))
         return a
