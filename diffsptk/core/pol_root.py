@@ -17,8 +17,25 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from functools import reduce
 
-from ..misc.utils import check_size
+from ..misc.utils import check_size, to_3d
+
+
+def prod2pol(p1, p2):
+    if p1.shape[-1] > p2.shape[-1]:
+        p1, p2 = p2, p1
+    *orig_shape, p1_order = p1.shape
+    p1_flip = to_3d(p1).flip(2)
+    p2 = to_3d(p2).transpose(0, 1)
+
+    prod = F.conv1d(
+        p2,
+        p1_flip,
+        padding=p1_order - 1,
+        groups=p2.shape[0],
+    ).reshape(*orig_shape, -1)
+    return prod
 
 
 class RootsToPolynomial(nn.Module):
@@ -60,7 +77,15 @@ class RootsToPolynomial(nn.Module):
         """
         check_size(x.size(-1), self.order, "number of roots")
 
-        a = F.pad(torch.ones_like(x[..., :1]), (0, self.order))
-        for m in range(self.order):
-            a[..., 1:] = a[..., 1:].clone() - x[..., m : m + 1] * a[..., :-1].clone()
+        a = torch.stack([torch.ones_like(x), -x], dim=-1)
+
+        left_pols = []
+        while a.shape[-2] > 1:
+            d, m = divmod(a.shape[-2], 2)
+            if m:
+                left_pols.append(a[..., -1, :])
+                a = a[..., :-1, :]
+            a = prod2pol(a[..., :d, :], a[..., d:, :])
+
+        a = reduce(prod2pol, left_pols[::-1], a.squeeze(-2))
         return a
